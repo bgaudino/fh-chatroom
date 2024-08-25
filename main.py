@@ -20,10 +20,13 @@ class Message:
     timestamp: datetime
 
     def __ft__(self, **kwargs):
-        return fh.P(
-            fh.Strong(f'{self.user}:'),
-            self.content,
-            **kwargs,
+        return (
+            fh.P(
+                fh.Strong(f'{self.user}:'),
+                self.content,
+                **kwargs,
+            ),
+            fh.Hr(),
         )
 
 
@@ -134,26 +137,30 @@ def username_form(current_username):
 
 @app.get('/')
 def home(username: str):
-    return fh.Titled(
-        'Chatroom',
-        fh.Div(
-            connected_users(),
-            fh.Div(
-                current_user(username),
-                id='username',
+    return fh.Container(
+        fh.Nav(
+            fh.Ul(fh.Li(fh.H1('Chat room'))),
+            fh.Ul(fh.Li(connected_users())),
+        ),
+        fh.Main(
+            fh.Card(
+                fh.Div(
+                    current_user(username),
+                    id='username',
+                ),
+                fh.Form(
+                    message_input(),
+                    hx_ext='ws',
+                    ws_connect='/chat',
+                    ws_send='true',
+                ),
             ),
-            fh.Form(
-                message_input(),
-                hx_ext='ws',
-                ws_connect='/chat',
-                ws_send='true',
-            ),
-            fh.Div(
+            fh.Card(
                 chat_history(),
                 id='chat-history',
             )
-        ),
-    )
+        )
+    ),
 
 
 @app.get('/messages')
@@ -199,6 +206,7 @@ async def chat(message: str, send, ws):
     )
     message = messages.insert(message)
     asyncio.create_task(update_chat(message))
+    await send(message_input())
 
 
 async def update_chat(message):
