@@ -19,8 +19,12 @@ class Message:
     content: str
     timestamp: datetime
 
-    def __ft__(self):
-        return fh.P(fh.Strong(f'{self.user}:'), self.content)
+    def __ft__(self, **kwargs):
+        return fh.P(
+            fh.Strong(f'{self.user}:'),
+            self.content,
+            **kwargs,
+        )
 
 
 db = fh.database('data/chat.db')
@@ -63,12 +67,34 @@ def message_input():
     )
 
 
-def chat_history():
-    return fh.Div(
-        *reversed(messages()),
-        id='chat-history',
-        hx_swap_oob='outerHTML',
-    )
+MESSAGE_BATCH_SIZE = 30
+
+
+def chat_history(last_id=None):
+    if last_id is None:
+        query = db.query(
+            'select * from message order by id desc limit ?',
+            [MESSAGE_BATCH_SIZE]
+        )
+    else:
+        query = db.query(
+            'select * from message where id < ? order by id desc limit ?',
+            [last_id, MESSAGE_BATCH_SIZE]
+        )
+    if msgs := [Message(**m) for m in query]:
+        return (
+            *msgs,
+            fh.P(
+                'loading more messages...',
+                id='loading-indicator',
+                cls='hx-indicator',
+                aria_busy='true',
+                hx_get=f'/messages?last_id={msgs[-1].id}',
+                hx_trigger='revealed delay:250ms',
+                hx_swap='outerHTML',
+                hx_indicator='#loading-indicator',
+            ),
+        )
 
 
 def connected_users():
@@ -122,9 +148,17 @@ def home(username: str):
                 ws_connect='/chat',
                 ws_send='true',
             ),
-            chat_history(),
+            fh.Div(
+                chat_history(),
+                id='chat-history',
+            )
         ),
     )
+
+
+@app.get('/messages')
+def get_messages(last_id: int):
+    return chat_history(last_id)
 
 
 @app.get('/username')
@@ -147,11 +181,12 @@ def change_username(new_username: str):
 async def on_connect(send):
     users.add(send)
     await send(chat_history())
-    asyncio.create_task(update_chat())
+    asyncio.create_task(update_users())
 
 
 async def on_disconnect(send):
-    asyncio.create_task(update_chat())
+    users.discard(send)
+    asyncio.create_task(update_users())
 
 
 @app.ws('/chat', conn=on_connect, disconn=on_disconnect)
@@ -162,31 +197,31 @@ async def chat(message: str, send, ws):
         content=message,
         timestamp=datetime.now(tz=ZoneInfo('America/Chicago')),
     )
-    messages.insert(message)
-    await send((
-        message_input(),
-        fh.Div(
-            message,
-            id='chat-history',
-            hx_swap_oob='afterstart',
-        )
-    ))
-    asyncio.create_task(update_chat())
+    message = messages.insert(message)
+    asyncio.create_task(update_chat(message))
 
 
-async def update_chat():
+async def update_chat(message):
     to_discard = set()
     for send in users:
         try:
-            await send(chat_history())
-        except Exception as e:
-            print(f"Error sending update: {e}")
+            await send(fh.Div(message, id='chat-history', hx_swap_oob='afterbegin'))
+        except Exception:
             to_discard.add(send)
-    users.difference_update(to_discard)
+    if to_discard:
+        users.difference_update(to_discard)
+        asyncio.create_task(update_users())
+
+
+async def update_users():
+    to_discard = set()
     for send in users:
         try:
             await send(connected_users())
-        except Exception as e:
-            print(f"Error sending update: {e}")
+        except Exception:
+            to_discard.add(send)
+    if to_discard:
+        users.difference_update(to_discard)
+        asyncio.create_task(update_users())
 
 fh.serve(port=8000)
