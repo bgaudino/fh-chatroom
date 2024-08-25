@@ -19,12 +19,11 @@ class Message:
     content: str
     timestamp: datetime
 
-    def __ft__(self, **kwargs):
+    def __ft__(self):
         return (
             fh.P(
                 fh.Strong(f'{self.user}:'),
                 self.content,
-                **kwargs,
             ),
             fh.Hr(),
         )
