@@ -1,4 +1,5 @@
 import asyncio
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -10,6 +11,7 @@ from random_username.generate import generate_username
 
 
 TIMEZONE = 'America/Chicago'
+DEBUG = os.environ.get('DEBUG') == 'True'
 
 
 @dataclass
@@ -49,7 +51,13 @@ class GenerateUsernameMiddleware(BaseHTTPMiddleware):
 
 middleware = [fh.Middleware(GenerateUsernameMiddleware)]
 app = fh.FastHTML(
-    hdrs=[fh.picolink, fh.htmxwsscr],
+    debug=DEBUG,
+    ws_hdr=True,
+    htmlkw={
+        'x-data': '{ theme: localStorage.getItem("theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") }',
+        ':data-theme': 'theme',
+    },
+    hdrs=[fh.picolink, fh.Script(src='https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js', defer=True)],
     middleware=middleware,
 )
 
@@ -139,7 +147,17 @@ def home(username: str):
     return fh.Container(
         fh.Nav(
             fh.Ul(fh.Li(fh.H1('Chat room'))),
-            fh.Ul(fh.Li(connected_users())),
+            fh.Ul(
+                fh.Li(connected_users()),
+                fh.Span(
+                    fh.Button(
+                        fh.Span('☀️', x_show='theme === "light"'),
+                        fh.Span('🌙', x_show='theme === "dark"'),
+                        cls='outline',
+                        **{'@click': 'theme = theme === "dark" ? "light" : "dark"; localStorage.setItem("theme", theme);'}
+                    ),
+                ),
+            ),
         ),
         fh.Main(
             fh.Card(
